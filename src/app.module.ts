@@ -4,6 +4,8 @@ import { BullModule } from '@nestjs/bullmq';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { TerminusModule } from '@nestjs/terminus';
+import { ServeStaticModule } from '@nestjs/serve-static';
+import { join } from 'path';
 import * as Sentry from '@sentry/nestjs';
 
 import { CommonConfigModule } from './common/config/config.module';
