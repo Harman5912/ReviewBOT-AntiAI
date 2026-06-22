@@ -20,6 +20,7 @@ interface ProcessPrJob {
   repository: Record<string, any>;
   organization?: Record<string, any>;
   idempotencyKey: string;
+  userPrompt?: string;
 }
 
 @Processor('review', {
@@ -193,7 +194,6 @@ export class ReviewProcessor extends WorkerHost {
           context: retrievalContext,
           staticResults: filterResults,
           config: context.config,
-          userPrompt: data.userPrompt,
         });
 
         findings = reviewOutput.findings;
@@ -248,19 +248,34 @@ export class ReviewProcessor extends WorkerHost {
         `[${context.reviewId}] Post-processing complete: ${prePostProcessCount} → ${processedFindings.length} findings`,
       );
 
-      // Transition to PENDING_REVIEW instead of auto-publishing.
-      // Findings are stored for the user to review in the dashboard.
-      // The user can then approve/reject/publish via the dashboard.
-      this.orchestrator.transition(context.reviewId, ReviewState.PENDING_REVIEW, {
+      this.orchestrator.transition(context.reviewId, ReviewState.PUBLISH, {
         processedFindings,
       });
+
+      // STATE: PUBLISH
+      this.logger.log(
+        `[${context.reviewId}] Publishing ${processedFindings.length} findings to PR #${data.pullRequest.number}...`,
+      );
+      await this.publisher.publish({
+        review,
+        findings: processedFindings,
+        repository: data.repository,
+        pullRequest: data.pullRequest,
+        processingStats: {
+          ...stats,
+          elapsedMs: Date.now() - startTime,
+        },
+      });
+
+      // STATE: DONE
+      this.orchestrator.transition(context.reviewId, ReviewState.DONE);
 
       const elapsed = Date.now() - startTime;
       this.logger.log(
         `[${context.reviewId}] ✅ Review complete in ${elapsed}ms. ` +
-          `${processedFindings.length} findings awaiting user review. ` +
+          `Published ${processedFindings.length} findings to PR #${data.pullRequest.number}. ` +
           `Pipeline: ${stats.totalChunks} chunks → ${stats.triagedChunks} triaged → ` +
-          `${stats.rawFindings} raw findings → ${processedFindings.length} pending ` +
+          `${stats.rawFindings} raw findings → ${processedFindings.length} published ` +
           `(${stats.crossExamSuppressed} suppressed by cross-exam, ${stats.staticFindings} from static filters)`,
       );
 
