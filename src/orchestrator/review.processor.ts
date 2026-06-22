@@ -248,11 +248,11 @@ export class ReviewProcessor extends WorkerHost {
         `[${context.reviewId}] Post-processing complete: ${prePostProcessCount} → ${processedFindings.length} findings`,
       );
 
-      this.orchestrator.transition(context.reviewId, ReviewState.PUBLISH, {
+      this.orchestrator.transition(context.reviewId, ReviewState.PUBLISHING, {
         processedFindings,
       });
 
-      // STATE: PUBLISH
+      // STATE: PUBLISHING
       this.logger.log(
         `[${context.reviewId}] Publishing ${processedFindings.length} findings to PR #${data.pullRequest.number}...`,
       );
