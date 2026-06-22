@@ -4,8 +4,6 @@ import { BullModule } from '@nestjs/bullmq';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { TerminusModule } from '@nestjs/terminus';
-import { ServeStaticModule } from '@nestjs/serve-static';
-import { join } from 'path';
 import * as Sentry from '@sentry/nestjs';
 
 import { CommonConfigModule } from './common/config/config.module';
@@ -41,6 +39,8 @@ import { DashboardModule } from './dashboard/dashboard.module';
         host: process.env.REDIS_HOST || 'localhost',
         port: parseInt(process.env.REDIS_PORT || '6379', 10),
         password: process.env.REDIS_PASSWORD || undefined,
+        maxRetriesPerRequest: 1,
+        retryStrategy: () => null, // Don't retry — fail fast if Redis is unavailable
       },
       defaultJobOptions: {
         attempts: 3,
@@ -73,10 +73,6 @@ import { DashboardModule } from './dashboard/dashboard.module';
     GithubModule,
     HealthModule,
     DashboardModule,
-    ServeStaticModule.forRoot({
-      rootPath: join(__dirname, '..', 'public'),
-      serveRoot: '/',
-    }),
   ],
 })
 export class AppModule {}
