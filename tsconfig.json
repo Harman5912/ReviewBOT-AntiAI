@@ -1,0 +1,37 @@
+{
+  "exclude": ["node_modules", "dist", "public", "test"],
+  "compilerOptions": {
+    "module": "commonjs",
+    "declaration": true,
+    "removeComments": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "allowSyntheticDefaultImports": true,
+    "target": "ES2022",
+    "sourceMap": true,
+    "outDir": "./dist",
+    "baseUrl": "./",
+    "incremental": true,
+    "skipLibCheck": true,
+    "strictNullChecks": true,
+    "noImplicitAny": false,
+    "strictBindCallApply": true,
+    "forceConsistentCasingInFileNames": true,
+    "noFallthroughCasesInSwitch": true,
+    "strict": true,
+    "paths": {
+      "@common/*": ["src/common/*"],
+      "@ingestion/*": ["src/ingestion/*"],
+      "@queue/*": ["src/queue/*"],
+      "@orchestrator/*": ["src/orchestrator/*"],
+      "@diff-parser/*": ["src/diff-parser/*"],
+      "@context-retrieval/*": ["src/context-retrieval/*"],
+      "@static-filters/*": ["src/static-filters/*"],
+      "@llm-engine/*": ["src/llm-engine/*"],
+      "@post-processor/*": ["src/post-processor/*"],
+      "@publisher/*": ["src/publisher/*"],
+      "@github/*": ["src/github/*"],
+      "bullmq": ["node_modules/bullmq/dist/esm/index.d.ts"]
+    }
+  }
+}

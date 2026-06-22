@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.env
+.env.local
+.env.*.local
+*.log
+coverage/
+.nyc_output/
+tmp/
+tmp/
+*.swp
+*.swo
+.idea/
+.vscode/
+*.tgz

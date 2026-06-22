@@ -1,0 +1,53 @@
+# ReviewBot Configuration
+# Place this file at .github/reviewbot.yaml in your repository
+
+# Enable automatic review on PRs
+auto_review: true
+
+# Review draft PRs
+draft_prs: false
+
+# Minimum severity to report (critical, high, medium, low, nit)
+severity_threshold: nit
+
+# Maximum number of comments per review
+max_comments: 25
+
+# Review tone (professional, friendly, concise)
+tone: professional
+
+# Paths to ignore
+ignored_paths:
+  - node_modules/**
+  - vendor/**
+  - dist/**
+  - build/**
+  - "*.lock"
+  - "*.min.js"
+  - "*.min.css"
+  - generated/**
+  - .yarn/**
+
+# Banned APIs that should never be used
+banned_apis:
+  - eval
+  - exec
+  - execSync
+  - innerHTML
+  - document.write
+
+# Required test file patterns
+required_test_paths:
+  - "**/*.test.*"
+  - "**/*.spec.*"
+  - "**/__tests__/**"
+
+# Minimum severity to fail the check (for CI status)
+fail_on_severity: high
+
+# Security scanning settings
+security:
+  secret_scan: true
+  dependency_check: true
+  sql_injection_scan: true
+  xss_scan: true

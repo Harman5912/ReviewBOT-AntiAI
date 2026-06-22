@@ -1,0 +1,39 @@
+services:
+  - type: web
+    name: reviewbot
+    env: node
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start:prod
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: DATABASE_TYPE
+        value: sqlite
+      - key: DATABASE_NAME
+        value: reviewbot
+      - key: REDIS_HOST
+        value: localhost
+      - key: REDIS_PORT
+        value: 6379
+      - key: OPENROUTER_BASE_URL
+        value: https://openrouter.ai/api/v1
+      - key: OPENROUTER_DEFAULT_MODEL
+        value: google/gemini-2.5-flash
+      - key: OPENROUTER_REVIEW_MODEL
+        value: openrouter/owl-alpha
+      - key: CONFIDENCE_THRESHOLD
+        value: "0.70"
+      - key: MAX_RETRIES
+        value: "3"
+      - key: REVIEW_CONCURRENCY
+        value: "5"
+      - key: REVIEW_TIMEOUT_MS
+        value: "480000"
+      - key: CLONE_BASE_PATH
+        value: /tmp/reviewbot
+    disk:
+      name: reviewbot-data
+      mountPath: /tmp/reviewbot
+      sizeGB: 1
