@@ -73,6 +73,10 @@ import { DashboardModule } from './dashboard/dashboard.module';
     GithubModule,
     HealthModule,
     DashboardModule,
+    ServeStaticModule.forRoot({
+      rootPath: join(__dirname, '..', 'public'),
+      serveRoot: '/',
+    }),
   ],
 })
 export class AppModule {}
