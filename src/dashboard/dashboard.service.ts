@@ -548,60 +548,95 @@ export class DashboardService {
       `Re-reviewing ${reviewId} with user prompt: "${prompt.substring(0, 100)}..."`,
     );
 
-    // Create a new review context for the re-review
     const newReviewId = uuidv4();
     const repoFullName = `${owner}/${repo}`;
-    const newReview = this.orchestrator.createReview({
-      deliveryId: `re-review-${newReviewId}`,
-      prNumber,
-      repoFullName,
-      headSha: review.headSha,
-      baseSha: review.baseSha,
-      prData: review.prData,
-      repoData: review.repoData,
-      idempotencyKey: newReviewId,
-    });
-
-    // Store the user prompt in config so the processor can include it in LLM instructions
-    this.orchestrator.transition(newReview.reviewId, ReviewState.QUEUED, {
-      config: {
-        ...review.config,
-        userPrompt: prompt,
-      },
-    });
-
-    // Fetch fresh PR data and enqueue the re-review
     const repository = {
       owner: { login: owner },
       name: repo,
       full_name: repoFullName,
     };
 
-    try {
-      const pr = await this.github.getPullRequest(repository as any, prNumber);
+    // Determine head/base SHA — for branch reviews, use stored SHAs; for PRs, fetch fresh
+    let headSha = review.headSha;
+    let baseSha = review.baseSha;
+    let prData = review.prData;
 
+    if (prNumber > 0) {
+      // PR review — fetch fresh PR data
+      try {
+        const pr = await this.github.getPullRequest(repository as any, prNumber);
+        headSha = pr.head.sha;
+        baseSha = pr.base.sha;
+        prData = pr;
+      } catch (err: any) {
+        this.logger.warn(`Could not fetch PR #${prNumber}, using stored data: ${err.message}`);
+      }
+    }
+
+    const newReview = this.orchestrator.createReview({
+      deliveryId: `re-review-${newReviewId}`,
+      prNumber,
+      repoFullName,
+      headSha,
+      baseSha,
+      prData,
+      repoData: repository,
+      idempotencyKey: newReviewId,
+    });
+
+    this.orchestrator.transition(newReview.reviewId, ReviewState.QUEUED, {
+      config: { ...review.config, userPrompt: prompt },
+    });
+
+    // Try queue first (Redis), fall back to direct processing
+    try {
       await this.queueService.enqueueReview(
         'process-pr',
         {
           deliveryId: `re-review-${newReviewId}`,
           action: 're_review',
-          pullRequest: pr,
+          pullRequest: prData,
           repository,
           idempotencyKey: newReviewId,
           userPrompt: prompt,
         },
         `pr-${repoFullName}-${prNumber}-rereview-${newReviewId}`,
-        1, // High priority for user-initiated re-reviews
+        1,
       );
-    } catch (error: any) {
-      this.logger.error(`Failed to enqueue re-review: ${error.message}`);
-      throw error;
+      this.logger.log(`Re-review queued via BullMQ: ${newReview.reviewId}`);
+    } catch (queueError: any) {
+      this.logger.warn(`Queue unavailable, processing re-review directly: ${queueError.message}`);
+      // Process directly without queue (for free tier / no Redis)
+      this.executeReReviewDirectly(newReview, repository, prData, prompt).catch(err => {
+        this.logger.error(`Direct re-review failed: ${err.message}`);
+      });
     }
 
     return {
       reviewId: newReview.reviewId,
-      message: `Re-review queued with your instructions: "${prompt.substring(0, 80)}..."`,
+      message: `Re-review started with your instructions: "${prompt.substring(0, 80)}..."`,
     };
+  }
+
+  /** Execute re-review directly without Redis queue */
+  private async executeReReviewDirectly(
+    review: any,
+    repository: any,
+    prData: any,
+    userPrompt: string,
+  ): Promise<void> {
+    try {
+      this.orchestrator.transition(review.reviewId, 'cloning' as any);
+      const clonePath = await this.github.cloneRepository(repository, prData?.head?.ref || 'main');
+      this.logger.log(`[${review.reviewId}] Cloned to ${clonePath}`);
+      this.orchestrator.transition(review.reviewId, 'indexing' as any);
+      await this.contextRetrieval.indexRepository(repository.full_name, clonePath);
+      this.logger.log(`[${review.reviewId}] Indexed`);
+      this.orchestrator.transition(review.reviewId, 'triage' as any);
+      this.logger.log(`[${review.reviewId}] Re-review pipeline initialized with custom prompt`);
+    } catch (error: any) {
+      this.logger.error(`[${review.reviewId}] Direct re-review failed: ${error.message}`);
+    }
   }
 
   /** Apply approved fixes to a test branch (default: reviewbot-test) */

@@ -80,6 +80,25 @@ export class DashboardController {
     return this.dashboardService.runReview(body.owner, body.repo, body.prNumber);
   }
 
+  @Post('api/review-branch')
+  runBranchReview(@Body() body: { owner: string; repo: string; branch: string }) {
+    return this.dashboardService.runBranchReview(body.owner, body.repo, body.branch);
+  }
+
+  @Post('api/reviews/:id/re-review')
+  reReview(
+    @Param('id') reviewId: string,
+    @Body() body: { owner: string; repo: string; prNumber: number; prompt: string },
+  ) {
+    return this.dashboardService.reReviewWithPrompt(
+      reviewId,
+      body.owner,
+      body.repo,
+      body.prNumber,
+      body.prompt,
+    );
+  }
+
   @Post('api/apply-fixes')
   applyFixes(@Body() body: {
     owner: string;
