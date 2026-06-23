@@ -164,13 +164,13 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;background:
 
 <!-- RUN REVIEW -->
 <div class="page" id="page-review">
-  <div class="topbar"><div><div class="topbar-title">Run Review</div><div class="topbar-sub">Select a repository and PR to review</div></div></div>
+  <div class="topbar"><div><div class="topbar-title">Run Review</div><div class="topbar-sub">Select a repository and branch to review</div></div></div>
   <div class="content">
     <div class="three-col">
       <div class="col-panel"><div class="col-header"><h3>1. Repository</h3><div class="spinner" id="repos-spinner" style="display:none"></div></div><div class="col-body" id="repo-list"><div class="empty"><div class="empty-text">Loading repos...</div></div></div></div>
-      <div class="col-panel"><div class="col-header"><h3>2. Pull Request</h3><div class="spinner" id="prs-spinner" style="display:none"></div></div><div class="col-body" id="pr-list"><div class="empty"><div class="empty-icon">📂</div><div class="empty-text">Select a repository first</div></div></div></div>
+      <div class="col-panel"><div class="col-header"><h3>2. Branch</h3><div class="spinner" id="branches-spinner" style="display:none"></div></div><div class="col-body" id="branch-list"><div class="empty"><div class="empty-icon">📂</div><div class="empty-text">Select a repository first</div></div></div></div>
       <div class="col-panel"><div class="col-header"><h3>3. Review</h3></div><div class="col-body" id="review-panel" style="padding:16px;">
-        <div class="empty" id="review-empty"><div class="empty-icon">🔍</div><div class="empty-title">Ready to Review</div><div class="empty-text">Select a repository and PR, then click "Run Review"</div></div>
+        <div class="empty" id="review-empty"><div class="empty-icon">🔍</div><div class="empty-title">Ready to Review</div><div class="empty-text">Select a repository and branch, then click "Run Review"</div></div>
         <div id="review-selected" style="display:none;">
           <div style="margin-bottom:16px"><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Selected PR</div><div style="font-size:14px;font-weight:600;" id="review-pr-title">—</div><div style="font-size:12px;color:var(--text-muted);margin-top:2px;" id="review-pr-meta">—</div></div>
           <button class="btn btn-primary" style="width:100%;justify-content:center;margin-bottom:16px;" id="btn-run-review" onclick="runReview()">▶ Run AI Review</button>
@@ -266,32 +266,32 @@ function selectRepo(fullName,el){
   state.selectedPR=null;state.findings=[];state.approvedFindings.clear();
   document.querySelectorAll('.repo-item').forEach(e=>e.classList.remove('selected'));
   el.classList.add('selected');
-  document.getElementById('pr-list').innerHTML='<div class="empty"><div class="empty-text">Loading PRs...</div></div>';
+  document.getElementById('branch-list').innerHTML='<div class="empty"><div class="empty-text">Loading branches...</div></div>';
   document.getElementById('review-selected').style.display='none';
   document.getElementById('review-empty').style.display='block';
-  loadPRs(owner,repo);
+  loadBranches(owner,repo);
 }
 
-async function loadPRs(owner,repo){
-  const el=document.getElementById('pr-list');
-  document.getElementById('prs-spinner').style.display='block';
+async function loadBranches(owner,repo){
+  const el=document.getElementById('branch-list');
+  document.getElementById('branches-spinner').style.display='block';
   try{
-    state.prs=await api(`/github/repos/${owner}/${repo}/prs?state=open`);
-    if(!state.prs.length){el.innerHTML='<div class="empty"><div class="empty-icon">📭</div><div class="empty-text">No open pull requests</div></div>';return}
-    el.innerHTML=state.prs.map(pr=>`<div class="pr-item ${state.selectedPR&&state.selectedPR.number===pr.number?'selected':''}" onclick="selectPR(${pr.number},this)"><div class="pr-number">#${pr.number}</div><div class="pr-info"><div class="pr-title">${pr.title}</div><div class="pr-meta">@${pr.user.login} · ${pr.head.ref} → ${pr.base.ref} · ${timeAgo(pr.updatedAt)}</div></div>${pr.draft?'<span class="pr-draft">DRAFT</span>':''}</div>`).join('');
+    state.branches=await api(`/github/repos/${owner}/${repo}/branches`);
+    if(!state.branches.length){el.innerHTML='<div class="empty"><div class="empty-icon">📭</div><div class="empty-text">No branches found</div></div>';return}
+    el.innerHTML=state.branches.map(b=>`<div class="pr-item ${state.selectedBranch&&state.selectedBranch.name===b.name?'selected':''}" onclick="selectReviewBranch('${b.name}',this)"><div class="pr-number">🌿</div><div class="pr-info"><div class="pr-title">${b.name}</div><div class="pr-meta">${b.sha.substring(0,8)}${b.protected?' · protected':''}</div></div></div>`).join('');
   }catch(e){el.innerHTML=`<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-text">Error: ${e.message}</div></div>`}
-  document.getElementById('prs-spinner').style.display='none';
+  document.getElementById('branches-spinner').style.display='none';
 }
 
-function selectPR(number,el){
-  state.selectedPR=state.prs.find(p=>p.number===number);
+function selectReviewBranch(branchName,el){
+  state.selectedBranch=state.branches.find(b=>b.name===branchName);
   state.findings=[];state.approvedFindings.clear();
-  document.querySelectorAll('.pr-item').forEach(e=>e.classList.remove('selected'));
+  document.querySelectorAll('#branch-list .pr-item').forEach(e=>e.classList.remove('selected'));
   el.classList.add('selected');
   document.getElementById('review-empty').style.display='none';
   document.getElementById('review-selected').style.display='block';
-  document.getElementById('review-pr-title').textContent=`#${state.selectedPR.number} — ${state.selectedPR.title}`;
-  document.getElementById('review-pr-meta').textContent=`${state.selectedRepo.full_name} · ${state.selectedPR.head.ref} → ${state.selectedPR.base.ref} · @${state.selectedPR.user.login}`;
+  document.getElementById('review-pr-title').textContent=state.selectedBranch.name;
+  document.getElementById('review-pr-meta').textContent=`${state.selectedRepo.full_name} · ${state.selectedBranch.sha.substring(0,8)}${state.selectedBranch.protected?' · protected branch':''}`;
   document.getElementById('log-section').style.display='none';
   document.getElementById('findings-section').style.display='none';
   document.getElementById('apply-section').style.display='none';
@@ -299,10 +299,10 @@ function selectPR(number,el){
 }
 
 async function runReview(){
-  if(!state.selectedPR)return;
+  if(!state.selectedBranch)return;
   const owner=state.selectedRepo.owner.login;
   const repo=state.selectedRepo.name;
-  const prNumber=state.selectedPR.number;
+  const branch=state.selectedBranch.name;
   const btn=document.getElementById('btn-run-review');
   btn.disabled=true;btn.innerHTML='<div class="spinner" style="width:14px;height:14px;border-width:2px;"></div> Running...';
   document.getElementById('log-section').style.display='block';
@@ -310,9 +310,9 @@ async function runReview(){
   document.getElementById('apply-section').style.display='none';
   document.getElementById('log-stream').innerHTML='';
   try{
-    const result=await post('/review',{owner,repo,prNumber});
+    const result=await post('/review-branch',{owner,repo,branch});
     state.currentReviewId=result.reviewId;
-    addLog('init','Review started: '+result.reviewId.substring(0,8)+'...');
+    addLog('init','Branch review started: '+result.reviewId.substring(0,8)+'...');
     pollReview(result.reviewId);
   }catch(e){addLog('error','Failed to start review: '+e.message,'error')}
   btn.disabled=false;btn.innerHTML='▶ Run AI Review';
