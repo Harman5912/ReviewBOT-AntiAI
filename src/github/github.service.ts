@@ -278,7 +278,7 @@ export class GithubService {
     repositories_url: string;
   }>> {
     const { data } = await this.octokit.rest.apps.listInstallations();
-    return data.map((inst: any) => ({
+    const installations = data.map((inst: any) => ({
       id: inst.id,
       account: {
         login: inst.account.login,
@@ -287,6 +287,14 @@ export class GithubService {
       },
       repositories_url: inst.repositories_url,
     }));
+    // Filter to only show installations where the account type is "User" (not organizations)
+    // and prioritize the owner's account if GITHUB_OWNER is set
+    const ownerLogin = process.env.GITHUB_OWNER;
+    if (ownerLogin) {
+      const ownerInstall = installations.find(i => i.account.login === ownerLogin);
+      if (ownerInstall) return [ownerInstall];
+    }
+    return installations;
   }
 
   /** List ALL repos the GitHub App is installed on (paginated).
