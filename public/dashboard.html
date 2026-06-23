@@ -839,8 +839,18 @@ async function loadBranchRepos(){
   document.getElementById('branch-repos-spinner').style.display='block';
   try{
     branchState.installations=await api('/github/installations');
-    if(branchState.installations.length>0) branchState.repos=await api('/github/installations/'+branchState.installations[0].id+'/repos');
-    if(!branchState.repos||!branchState.repos.length){el.innerHTML='<div class="empty"><div class="empty-icon">📂</div><div class="empty-title">No Repositories</div><div class="empty-text">Install the GitHub App on a repository.</div></div>';return}
+    if(!branchState.installations||!branchState.installations.length){el.innerHTML='<div class="empty"><div class="empty-icon">📂</div><div class="empty-title">No Repositories</div><div class="empty-text">Install the GitHub App on a repository.</div></div>';return}
+    var allRepos=[];
+    for(var i=0;i<branchState.installations.length;i++){
+      var instRepos=await api('/github/installations/'+branchState.installations[i].id+'/repos');
+      if(instRepos&&instRepos.length){
+        instRepos.forEach(function(r){r._instId=branchState.installations[i].id;});
+        allRepos=allRepos.concat(instRepos);
+      }
+    }
+    var seen={};
+    branchState.repos=allRepos.filter(function(r){if(seen[r.full_name])return false;seen[r.full_name]=true;return true;});
+    if(!branchState.repos.length){el.innerHTML='<div class="empty"><div class="empty-icon">📂</div><div class="empty-title">No Repositories</div><div class="empty-text">Install the GitHub App on a repository.</div></div>';return}
     el.innerHTML=branchState.repos.map(r=>`<div class="repo-item ${branchState.selectedRepo&&branchState.selectedRepo.id===r.id?'selected':''}" onclick="selectBranchRepo('${r.full_name}',this)"><span class="repo-icon">${r.private?'🔒':'📂'}</span><div class="repo-info"><div class="repo-name">${r.name}</div><div class="repo-desc">${r.description||r.full_name}</div></div></div>`).join('');
   }catch(e){el.innerHTML=`<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-text">Error: ${e.message}</div></div>`}
   document.getElementById('branch-repos-spinner').style.display='none';
