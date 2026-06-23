@@ -21,6 +21,7 @@ interface ReviewInput {
 interface ReviewOutput {
   findings: FindingDto[];
   triagedChunks: DiffChunk[];
+  summary: string;
   metadata: {
     pass1Chunks: number;
     pass2Findings: number;

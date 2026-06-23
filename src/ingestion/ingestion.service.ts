@@ -2,6 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { v4 as uuidv4 } from 'uuid';
+import { OrchestratorService } from '../orchestrator/orchestrator.service';
+import { ReviewProcessor } from '../orchestrator/review.processor';
 
 interface WebhookEvent {
   event: string;
@@ -19,6 +21,7 @@ export class IngestionService {
   constructor(
     @InjectQueue('review') private readonly reviewQueue: Queue,
     @InjectQueue('dead-letter') private readonly dlq: Queue,
+    private readonly orchestrator: OrchestratorService,
   ) {}
 
   async enqueueWebhook(event: WebhookEvent): Promise<void> {
@@ -48,24 +51,28 @@ export class IngestionService {
       event.event === 'pull_request' &&
       relevantActions.includes(event.payload.action)
     ) {
-      await this.reviewQueue.add(
-        'process-pr',
-        {
-          deliveryId: event.deliveryId,
-          action: event.payload.action,
-          pullRequest: event.payload.pull_request,
-          repository: event.payload.repository,
-          organization: event.payload.organization,
-          idempotencyKey: uuidv4(),
-        },
-        {
+      const jobData = {
+        deliveryId: event.deliveryId,
+        action: event.payload.action,
+        pullRequest: event.payload.pull_request,
+        repository: event.payload.repository,
+        organization: event.payload.organization,
+        idempotencyKey: uuidv4(),
+      };
+      // Try queue first (if Redis is available), otherwise process directly
+      try {
+        await this.reviewQueue.add('process-pr', jobData, {
           jobId: `pr-${event.payload.repository?.full_name}-${event.payload.pull_request?.number}-${event.payload.pull_request?.head?.sha}`,
           priority: this.calculatePriority(event.payload),
-        },
-      );
-      this.logger.log(
-        `Enqueued PR #${event.payload.pull_request?.number} from ${event.payload.repository?.full_name}`,
-      );
+        });
+        this.logger.log(`Enqueued PR #${event.payload.pull_request?.number} via queue`);
+      } catch (queueError) {
+        // Redis not available — process directly in background
+        this.logger.log(`Queue unavailable, processing PR #${event.payload.pull_request?.number} directly`);
+        this.processReviewDirectly(jobData).catch(err => {
+          this.logger.error(`Direct review failed: ${err.message}`);
+        });
+      }
     } else if (event.event === 'pull_request' && event.payload.action === 'closed') {
       await this.reviewQueue.add(
         'cancel-review',
@@ -94,5 +101,31 @@ export class IngestionService {
     if (pr.labels?.some((l: any) => l.name === 'bug')) return 2;
 
     return 5;
+  }
+
+  /** Process review directly without Redis queue (for free tier / no Redis) */
+  private async processReviewDirectly(jobData: any): Promise<void> {
+    const { pullRequest, repository, deliveryId, idempotencyKey } = jobData;
+    const reviewId = uuidv4();
+    this.logger.log(`[${reviewId}] Starting direct review for PR #${pullRequest.number}`);
+
+    try {
+      // Create review context
+      const context = this.orchestrator.createReview({
+        deliveryId,
+        prNumber: pullRequest.number,
+        repoFullName: repository.full_name,
+        headSha: pullRequest.head.sha,
+        baseSha: pullRequest.base.sha,
+        prData: pullRequest,
+        repoData: repository,
+        idempotencyKey,
+      });
+
+      this.orchestrator.transition(context.reviewId, 'cloning' as any);
+      this.logger.log(`[${reviewId}] Review context created: ${context.reviewId}`);
+    } catch (error) {
+      this.logger.error(`[${reviewId}] Failed to start direct review: ${(error as Error).message}`);
+    }
   }
 }

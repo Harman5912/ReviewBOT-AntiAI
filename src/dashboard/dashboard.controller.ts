@@ -1,7 +1,8 @@
 import { Controller, Get, Post, Param, Query, Body, Res } from '@nestjs/common';
 import { Response } from 'express';
 import { DashboardService } from './dashboard.service';
-import { SettingsService } from './settings.service';
+import { FeedbackService } from './feedback.service';
+import { RepoConfigService } from './repo-config.service';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -9,7 +10,8 @@ import * as path from 'path';
 export class DashboardController {
   constructor(
     private readonly dashboardService: DashboardService,
-    private readonly settingsService: SettingsService,
+    private readonly feedbackService: FeedbackService,
+    private readonly repoConfigService: RepoConfigService,
   ) {}
 
   // ── Data API ──
@@ -78,11 +80,6 @@ export class DashboardController {
     return this.dashboardService.runReview(body.owner, body.repo, body.prNumber);
   }
 
-  @Post('api/review-branch')
-  runBranchReview(@Body() body: { owner: string; repo: string; branch: string }) {
-    return this.dashboardService.runBranchReview(body.owner, body.repo, body.branch);
-  }
-
   @Post('api/apply-fixes')
   applyFixes(@Body() body: {
     owner: string;
@@ -98,228 +95,40 @@ export class DashboardController {
     );
   }
 
-  // ── Interactive review actions ──
+  // ── Feedback ──
 
-  /** Publish approved findings as PR review comments */
-  @Post('api/reviews/:id/publish')
-  publishReview(
-    @Param('id') reviewId: string,
-    @Body() body: {
-      owner: string;
-      repo: string;
-      prNumber: number;
-      approvedFindingIndices: number[];
-    },
-  ) {
-    return this.dashboardService.publishReview(
-      reviewId,
-      body.owner,
-      body.repo,
-      body.prNumber,
-      body.approvedFindingIndices,
-    );
-  }
-
-  /** Reject a review — dismiss all findings without publishing */
-  @Post('api/reviews/:id/reject')
-  rejectReview(@Param('id') reviewId: string) {
-    return this.dashboardService.rejectReview(reviewId);
-  }
-
-  /** Re-run review with a user-provided prompt for additional focus */
-  @Post('api/reviews/:id/re-review')
-  reReview(
-    @Param('id') reviewId: string,
-    @Body() body: {
-      owner: string;
-      repo: string;
-      prNumber: number;
-      prompt: string;
-    },
-  ) {
-    return this.dashboardService.reReviewWithPrompt(
-      reviewId,
-      body.owner,
-      body.repo,
-      body.prNumber,
-      body.prompt,
-    );
-  }
-
-  /** Apply fixes directly to the reviewbot-test branch */
-  @Post('api/reviews/:id/apply-to-branch')
-  applyToBranch(
-    @Param('id') reviewId: string,
-    @Body() body: {
-      owner: string;
-      repo: string;
-      prNumber: number;
-      approvedFindingIndices: number[];
-      targetBranch?: string;
-    },
-  ) {
-    return this.dashboardService.applyFixesToBranch(
-      reviewId,
-      body.owner,
-      body.repo,
-      body.prNumber,
-      body.approvedFindingIndices,
-      body.targetBranch || 'reviewbot-test',
-    );
-  }
-
-  // ── Branch management ──
-
-  /** List all branches for a repository */
-  @Get('api/github/repos/:owner/:repo/branches')
-  listBranches(
-    @Param('owner') owner: string,
-    @Param('repo') repo: string,
-  ) {
-    return this.dashboardService.listBranches(owner, repo);
-  }
-
-  /** Get branch sync status (ahead/behind default branch) */
-  @Get('api/github/repos/:owner/:repo/branches/:branch/sync')
-  getBranchSync(
-    @Param('owner') owner: string,
-    @Param('repo') repo: string,
-    @Param('branch') branch: string,
-  ) {
-    return this.dashboardService.getBranchSync(owner, repo, branch);
-  }
-
-  /** Sync a branch with the default branch (merge main into it) */
-  @Post('api/github/repos/:owner/:repo/branches/:branch/sync')
-  syncBranch(
-    @Param('owner') owner: string,
-    @Param('repo') repo: string,
-    @Param('branch') branch: string,
-  ) {
-    return this.dashboardService.syncBranch(owner, repo, branch);
-  }
-
-  /** Read a file from a branch */
-  @Get('api/github/repos/:owner/:repo/branches/:branch/file')
-  readFile(
-    @Param('owner') owner: string,
-    @Param('repo') repo: string,
-    @Param('branch') branch: string,
-    @Query('path') filePath: string,
-  ) {
-    return this.dashboardService.readFile(owner, repo, branch, filePath);
-  }
-
-  /** List files in a directory on a branch */
-  @Get('api/github/repos/:owner/:repo/branches/:branch/files')
-  listFiles(
-    @Param('owner') owner: string,
-    @Param('repo') repo: string,
-    @Param('branch') branch: string,
-    @Query('path') dirPath?: string,
-  ) {
-    return this.dashboardService.listFiles(owner, repo, branch, dirPath || '');
-  }
-
-  /** Write/update a file on a branch */
-  @Post('api/github/repos/:owner/:repo/branches/:branch/file')
-  writeFile(
-    @Param('owner') owner: string,
-    @Param('repo') repo: string,
-    @Param('branch') branch: string,
-    @Body() body: { path: string; content: string; commitMessage: string },
-  ) {
-    return this.dashboardService.writeFile(
-      owner,
-      repo,
-      branch,
-      body.path,
-      body.content,
-      body.commitMessage,
-    );
-  }
-
-  /** Write multiple files to a branch */
-  @Post('api/github/repos/:owner/:repo/branches/:branch/files')
-  writeFiles(
-    @Param('owner') owner: string,
-    @Param('repo') repo: string,
-    @Param('branch') branch: string,
-    @Body() body: { files: Array<{ path: string; content: string }>; commitMessage: string },
-  ) {
-    return this.dashboardService.writeFiles(
-      owner,
-      repo,
-      branch,
-      body.files,
-      body.commitMessage,
-    );
-  }
-
-  /** Create a PR from a branch */
-  @Post('api/github/repos/:owner/:repo/branches/:branch/pr')
-  createBranchPR(
-    @Param('owner') owner: string,
-    @Param('repo') repo: string,
-    @Param('branch') branch: string,
-    @Body() body: { base?: string; title: string; body?: string },
-  ) {
-    return this.dashboardService.createBranchPR(
-      owner,
-      repo,
-      branch,
-      body.base,
-      body.title,
-      body.body || '',
-    );
-  }
-
-  /** Ask ReviewBot to implement a feature/fix on a branch via LLM */
-  @Post('api/github/repos/:owner/:repo/branches/:branch/implement')
-  implementOnBranch(
-    @Param('owner') owner: string,
-    @Param('repo') repo: string,
-    @Param('branch') branch: string,
-    @Body() body: { prompt: string; files?: string[] },
-  ) {
-    return this.dashboardService.implementOnBranch(
-      owner,
-      repo,
-      branch,
-      body.prompt,
-      body.files,
-    );
-  }
-
-  // ── Settings ──
-
-  @Get('api/settings')
-  getSettings() {
-    return this.settingsService.getSettings();
-  }
-
-  @Post('api/settings/provider')
-  setProvider(@Body() body: { providerId: string }) {
-    this.settingsService.setActiveProvider(body.providerId);
-    return { success: true, activeProviderId: body.providerId };
-  }
-
-  @Post('api/settings/model')
-  setModel(@Body() body: { model: string }) {
-    this.settingsService.setActiveModel(body.model);
-    return { success: true, activeModel: body.model };
-  }
-
-  @Post('api/settings/api-key')
-  setApiKey(@Body() body: { providerId: string; apiKey: string }) {
-    this.settingsService.updateProviderApiKey(body.providerId, body.apiKey);
+  @Post('api/feedback')
+  recordFeedback(@Body() body: { findingId: string; reviewId: string; repoFullName: string; file: string; line: number; title: string; severity: string; isFalsePositive: boolean }) {
+    this.feedbackService.recordFeedback({ ...body, timestamp: new Date().toISOString() });
     return { success: true };
   }
 
-  @Post('api/settings/custom-model')
-  addCustomModel(@Body() body: { providerId: string; model: string }) {
-    this.settingsService.addCustomModel(body.providerId, body.model);
+  @Get('api/feedback/:repo')
+  getFeedback(@Param('repo') repo: string) {
+    return this.feedbackService.getFeedbackForRepo(decodeURIComponent(repo));
+  }
+
+  @Get('api/feedback/stats/false-positive-rate')
+  getFalsePositiveRate() {
+    return { rate: this.feedbackService.getFalsePositiveRate() };
+  }
+
+  // ── Repo Config ──
+
+  @Get('api/config/:repo')
+  getRepoConfig(@Param('repo') repo: string) {
+    return this.repoConfigService.getConfig(decodeURIComponent(repo));
+  }
+
+  @Post('api/config/:repo')
+  updateRepoConfig(@Param('repo') repo: string, @Body() body: any) {
+    this.repoConfigService.updateConfig(decodeURIComponent(repo), body);
     return { success: true };
+  }
+
+  @Get('api/configs')
+  getAllConfigs() {
+    return this.repoConfigService.getAllConfigs();
   }
 
   // ── Static page ──
