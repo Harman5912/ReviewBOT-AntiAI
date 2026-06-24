@@ -146,6 +146,31 @@ export class LlmEngineService implements OnModuleInit {
   async review(input: ReviewInput): Promise<ReviewOutput> {
     const { chunks, diff, context, staticResults, userPrompt } = input;
 
+    if (userPrompt) {
+      // RE-REVIEW mode: Deep scan with user instructions — skip triage, review all chunks
+      this.logger.log(`Re-review mode: Deep scanning ${chunks.length} chunks with user instructions`);
+      const findings = await this.reviewWithUserPrompt(
+        chunks,
+        diff,
+        context,
+        staticResults,
+        userPrompt,
+      );
+      const allFindings = [...staticResults.findings, ...findings];
+      return {
+        findings: allFindings,
+        triagedChunks: chunks,
+        summary: `Re-review complete: ${allFindings.length} findings based on user instructions`,
+        metadata: {
+          pass1Chunks: chunks.length,
+          pass2Findings: findings.length,
+          pass3Suppressed: 0,
+          totalTokensUsed: 0,
+        },
+      };
+    }
+
+    // INITIAL REVIEW mode: 3-pass pipeline with triage
     // PASS 1: Triage - determine which hunks deserve deep review
     this.logger.log(`Pass 1: Triaging ${chunks.length} chunks`);
     const triagedChunks = await this.pass1Triage(chunks);
@@ -157,7 +182,6 @@ export class LlmEngineService implements OnModuleInit {
       diff,
       context,
       staticResults,
-      userPrompt,
     );
 
     // PASS 3: Cross-examination
@@ -182,6 +206,150 @@ export class LlmEngineService implements OnModuleInit {
         totalTokensUsed: 0, // Tracked by provider
       },
     };
+  }
+
+  /** Deep review with user instructions — skips triage, reviews all chunks with focus on user prompt */
+  private async reviewWithUserPrompt(
+    chunks: DiffChunk[],
+    diff: string,
+    context: RetrievalContext,
+    staticResults: StaticFilterResult,
+    userPrompt: string,
+  ): Promise<FindingDto[]> {
+    const findings: FindingDto[] = [];
+    const batchSize = 5;
+
+    for (let i = 0; i < chunks.length; i += batchSize) {
+      const batch = chunks.slice(i, i + batchSize);
+      const batchFindings = await this.reviewChunkBatchWithPrompt(
+        batch,
+        diff,
+        context,
+        staticResults,
+        userPrompt,
+      );
+      findings.push(...batchFindings);
+    }
+
+    return findings;
+  }
+
+  private async reviewChunkBatchWithPrompt(
+    chunks: DiffChunk[],
+    diff: string,
+    context: RetrievalContext,
+    staticResults: StaticFilterResult,
+    userPrompt: string,
+  ): Promise<FindingDto[]> {
+    const chunksContext = chunks.map((c) => ({
+      id: c.id,
+      file: c.file,
+      language: c.metadata.language,
+      content: c.hunks.map((h) => h.lines.join('\n')).join('\n'),
+      startLine: c.startLine,
+      endLine: c.endLine,
+    }));
+
+    const existingFindings = staticResults.findings.map((f) => ({
+      file: f.file,
+      title: f.title,
+      severity: f.severity,
+    }));
+
+    const messages: ChatMessage[] = [
+      {
+        role: 'system',
+        content: `You are ReviewBot, an expert AI code reviewer performing a DEEP, THOROUGH scan of code changes.
+
+The user has provided specific instructions for what to focus on. Your job is to:
+1. Read ALL code changes carefully
+2. Find issues that match the user's specific instructions
+3. Also catch any other critical issues you notice
+4. For each finding, provide a detailed explanation and actionable fix suggestions
+
+RULES:
+- Only report issues you are confident about (confidence >= 0.60)
+- Always provide actionable suggestions with code patches when possible
+- Map findings to specific diff lines
+- Include CWE identifiers for security issues
+- Consider the full repository context provided
+- Be thorough — the user is asking for a deep scan
+- Report formatting issues only if they violate project conventions
+
+Output a JSON array of findings with this structure:
+[
+  {
+    "severity": "critical|high|medium|low|nit",
+    "category": "correctness|security|performance|maintainability|tests|convention",
+    "confidence": 0.0-1.0,
+    "cwe": "CWE-XXX or empty string",
+    "file": "path/to/file",
+    "start_line": number,
+    "end_line": number,
+    "title": "Brief title",
+    "explanation": "Detailed explanation of the issue",
+    "fix_explanation": "A clear, concise explanation of WHAT the suggested fix does and WHY it resolves the issue",
+    "suggestion_type": "committable|prose|none",
+    "suggestion_patch": "Code suggestion or empty string",
+    "evidence_refs": ["chunk_id"]
+  }
+]`,
+      },
+      {
+        role: 'user',
+        content: `Perform a deep code review focusing on the user's instructions.
+
+## User Instructions (PRIMARY FOCUS — prioritize this above all else):
+${userPrompt}
+
+## Code Chunks to Review:
+${JSON.stringify(chunksContext, null, 2)}
+
+## Repository Context:
+Symbols: ${JSON.stringify(context.symbols.slice(0, 30))}
+Related files: ${Array.from(context.relatedFiles.keys()).join(', ')}
+
+## Already Detected by Static Analysis (do not duplicate):
+${JSON.stringify(existingFindings, null, 2)}
+
+Provide your findings as a JSON array. Be thorough and focus on what the user asked about.`,
+      },
+    ];
+
+    try {
+      const result = await this.openRouter.chatJson(messages, {
+        model: this.openRouter.getReviewModel(),
+        maxTokens: 8192,
+        temperature: 0.15,
+      });
+
+      if (!result || !Array.isArray(result)) {
+        return [];
+      }
+
+      return result.map((item: any) => ({
+        finding_id: uuidv4(),
+        severity: item.severity || Severity.MEDIUM,
+        category: item.category || Category.CORRECTNESS,
+        confidence: Math.min(Math.max(item.confidence || 0.7, 0), 1),
+        cwe: item.cwe || '',
+        file: item.file || chunks[0]?.file || '',
+        start_line: item.start_line || 0,
+        end_line: item.end_line || 0,
+        side: Side.RIGHT,
+        title: item.title || 'Untitled Finding',
+        explanation: item.explanation || '',
+        fix_explanation: item.fix_explanation || '',
+        suggestion: {
+          type: item.suggestion_type || SuggestionType.PROSE,
+          patch: item.suggestion_patch || '',
+        },
+        evidence_refs: item.evidence_refs || [],
+      }));
+    } catch (error) {
+      this.logger.error(`Re-review batch failed: ${(error as Error).message}`);
+      return [];
+    }
   }
 
   async triageOnly(chunks: DiffChunk[]): Promise<FindingDto[]> {
