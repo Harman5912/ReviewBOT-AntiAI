@@ -38,7 +38,7 @@ export class RepoConfigService {
     if (idx >= 0) {
       configs[idx] = { ...configs[idx], ...updates };
     } else {
-      configs.push({ repoFullName, ...this.getDefaultConfig(repoFullName), ...updates });
+      configs.push({ ...this.getDefaultConfig(repoFullName), ...updates });
     }
     fs.writeFileSync(CONFIG_FILE, JSON.stringify(configs, null, 2), 'utf-8');
     this.logger.log(`Config updated for ${repoFullName}`);

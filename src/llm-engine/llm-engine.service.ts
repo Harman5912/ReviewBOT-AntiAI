@@ -174,6 +174,7 @@ export class LlmEngineService implements OnModuleInit {
     return {
       findings: allFindings,
       triagedChunks,
+      summary: `Review complete: ${allFindings.length} findings (${suppressedCount} suppressed)`,
       metadata: {
         pass1Chunks: triagedChunks.length,
         pass2Findings: pass2Findings.length,

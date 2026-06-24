@@ -626,10 +626,12 @@ export class DashboardService {
     userPrompt: string,
   ): Promise<void> {
     const repoFullName = repository.full_name;
+    const isPrReview = review.prNumber > 0;
+    const branch = prData?.head?.ref || 'main';
+
     try {
       // ── CLONE ──
       this.orchestrator.transition(review.reviewId, 'cloning' as any);
-      const branch = prData?.head?.ref || 'main';
       const clonePath = await this.github.cloneRepository(repository, branch);
       this.logger.log(`[${review.reviewId}] Cloned to ${clonePath}`);
 
@@ -640,7 +642,14 @@ export class DashboardService {
 
       // ── TRIAGE ──
       this.orchestrator.transition(review.reviewId, 'triage' as any);
-      const diff = await this.github.getPullRequestDiff(repository, review.prNumber);
+      let diff: string;
+      if (isPrReview) {
+        diff = await this.github.getPullRequestDiff(repository, review.prNumber);
+      } else {
+        // Branch review — compare against default branch
+        const defaultBranch = await this.github.getDefaultBranchInfo(repository);
+        diff = await this.github.getBranchDiff(repository, defaultBranch.name, branch);
+      }
       const chunks = await this.diffParser.parseAndChunk(diff, { repoFullName, prNumber: review.prNumber });
       this.logger.log(`[${review.reviewId}] Diff parsed: ${chunks.length} chunks`);
 
